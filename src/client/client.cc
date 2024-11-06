@@ -65,7 +65,6 @@ int main() {
       std::cout << arr[i] << ' ';
     }
     std::cout << std::endl;
-    getchar();
     unsigned long res = 0;
     permutations(arr, len, len, res);
     res = htonl(res);
