@@ -22,7 +22,7 @@ struct data {
 
 data gen_data() {
   data res;
-  res.len = 5 + rand() % 100;
+  res.len = 5 + rand() % 5;
   res.arr = new int[res.len];
   for (int i = 0; i < res.len; i++) {
     res.arr[i] = rand() % 1000;
@@ -47,17 +47,32 @@ struct client {
       client_disconnected = true;
     }
   }
-  unsigned long get_data(bool &client_disconnected) {
-    unsigned long result;
+  uint get_data(bool &client_disconnected) {
+    int result;
     int bytes_received = recv(socket, &result, sizeof(result), 0);
+
     if (bytes_received > 0) {
       result = ntohl(result);
-      std::cout << "Клиент"
-                << " отправил результат: " << result << std::endl;
+      if (result == -1) {
+        std::cout << "Клиент сообщил о завершении соединения." << std::endl;
+        client_disconnected = true;
+      } else {
+        std::cout << "Клиент отправил результат: " << result << std::endl;
+        int disconnect_signal;
+        int additional_bytes =
+            recv(socket, &disconnect_signal, sizeof(int), MSG_DONTWAIT);
+
+        if (additional_bytes > 0 && ntohl(disconnect_signal) == -1) {
+          std::cout << "Клиент отправил сигнал об отключении после отправки "
+                       "результата."
+                    << std::endl;
+          client_disconnected = true;
+        }
+      }
     } else if (bytes_received == 0 ||
                (bytes_received == -1 && errno != EWOULDBLOCK)) {
       if (bytes_received == 0) {
-        std::cout << "Клиент" << " разорвал соединение" << std::endl;
+        std::cout << "Клиент разорвал соединение" << std::endl;
       } else {
         std::cerr << "Ошибка приема результата от клиента" << std::endl;
       }
@@ -122,7 +137,6 @@ public:
     int max_fd;
 
     while (running) {
-      std::cout << "Все еще работает..." << std::endl;
       FD_ZERO(&readfds);
       FD_ZERO(&writefds);
       FD_SET(server_socket, &readfds);
@@ -162,14 +176,14 @@ public:
       for (int i = 0; i < clients.size();) {
         bool client_disconnected = false;
 
-        if (FD_ISSET(clients[i].socket, &writefds)) {
+        if (!client_disconnected && FD_ISSET(clients[i].socket, &readfds)) {
+          clients[i].get_data(client_disconnected);
+        }
+
+        if (!client_disconnected && FD_ISSET(clients[i].socket, &writefds)) {
           struct data d = gen_data();
           clients[i].send_data(d.arr, d.len, client_disconnected);
           delete d.arr;
-        }
-
-        if (!client_disconnected && FD_ISSET(clients[i].socket, &readfds)) {
-          clients[i].get_data(client_disconnected);
         }
 
         if (client_disconnected) {
@@ -200,7 +214,7 @@ int main() {
 
   server serv;
   if (serv.init(SERVER_ADRESS, SERVER_PORT) != 0) {
-    std::cerr << "Ошибка при инициализации сервера." << std::endl;
+    return 0;
   }
   std::thread server_thread(&server::work, &serv);
 
@@ -208,7 +222,6 @@ int main() {
   while (true) {
     std::cout << "Введите команду (stop): ";
     std::getline(std::cin, input);
-    std::cout << input << std::endl;
     if (input == "stop") {
       serv.stop();
       std::cout << "Выключение сервера..." << std::endl;
